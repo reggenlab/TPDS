@@ -1,0 +1,264 @@
+
+TPDS_Map<-function(sf=1.0,iter=100,gs=7,PCA1=T,norm=F)
+{  gs1<-gs
+if(norm==TRUE){
+ 
+  data3 <- normalize_input(data3)
+}
+
+data4<-data3
+if(PCA1 == TRUE ){  
+  data4<-data3
+  PCA<- prcomp(t(data4) )
+  data2<-PCA$rotation
+  data5<-data2
+  data3<-data5[,1:30]
+  data4<-data3   
+}
+library(GrowingSOM)
+gsom_map <- train.gsom(data3,spreadFactor=sf,iterations=iter,gridsize=gs)
+gsom_mapped <- map.gsom(gsom_map, data3) 
+r = {}
+r$map= gsom_map
+r$gsom_mapped = gsom_mapped
+r$gs = gs
+r$data4 = data4
+r
+}
+
+##########################################################################
+
+
+TPDS_Vis <-function(sig2=0.2,costal=5,lambda=1,kd=2)
+{
+  Mat1<-dist(Map$data4)
+  dista1<-Map$gsom_mapped[["mapped"]][["dist"]]
+  bmna1<-Map$gsom_mapped[["mapped"]][["bmn"]]
+  dista1<- dista1 / sd(dista1) ;
+  uq <- unique(bmna1) ;
+  data3<-as.matrix(data3)
+  nodeme<- matrix(0, max(uq) , length(data3[1,])) ;
+  
+  for(i in 1:length(uq)){ 
+    pos <- which(bmna1 == uq[i] ) 
+    
+    if(length(pos) >1) {
+      nodeme[uq[i],] <- as.matrix(apply(data3[pos,],2,mean) )
+    }
+    else{
+      nodeme[uq[i],] <- data3[pos,] ;
+    }
+  }
+  
+  clustermat<-as.matrix(t(nodeme))
+  X3<- matrix( 0,nrow(data3), nrow(nodeme)) ;
+  for (i in 1:nrow(data3)) {
+    for (j in 1:nrow(nodeme)) {
+      X3[i,j] = sum(abs(data3[i,] - nodeme[j,])) ; 
+    }
+    X3[i,] = X3[i,] / mean(X3[i,]) 
+  }  
+  distn=as.matrix(dist(nodeme, method='euclidean')) ;
+  distn = distn /max(distn) ;
+  num=max(uq)
+  mydata<-list()
+  allcostmds<- matrix(0, costal,1) ;
+  allcostSNE<- matrix(0, costal,1) ;
+  allcostfinal<-matrix(0, costal,1) ;
+  
+  mydis = dist(data3, method='euclidean')/max(distn) ; 
+  mydis=as.matrix(mydis)
+  merge = matrix(0, nrow(data3), nrow(data3)) ;
+  for( iter in 1:costal) 
+  {
+    sigma = sig2*iter*sd(distn) ;
+    
+    for (i in 1: nrow(data3)) {
+      for( j in 1:nrow(data3)) {
+        if (bmna1[i] != bmna1[j]) {
+          merge[i, j] = exp( -distn[bmna1[i],bmna1[j]]*distn[bmna1[i],bmna1[j]]/ sigma) ;
+        }
+        else
+        {
+          merge[i,j] = exp(-mydis[i,j] * mydis[i,j] / sigma ) ; 
+        }
+      }
+    }
+    
+    merge<-merge/mean(merge)
+    covd = mydis ;
+    wi  = matrix(0, nrow(covd) , ncol(covd)) 
+    wi2 = matrix(0, nrow(covd) , ncol(covd))
+    for(i in 1:nrow(data3))
+    {
+      for(j in 1:nrow(data3))
+      {
+        wi2[i,j] =  (1+ merge[i,j] - 1 / (1+ merge[i,j] ));       
+      }
+    }
+    
+    covd = covd/(0.0000000000001 + wi2) ; 
+    covd1<-covd/sd(covd)
+    
+    swiss.mds1 <- MASS::isoMDS(as.dist(covd1), k =2,maxit=100)
+    mydata[[iter]]<-swiss.mds1$points
+    
+    cost<- Costfn3(swiss.mds1$points,Map$data4)    
+    
+    Mat2<-dist(swiss.mds1$points)
+    
+    mdscostfn <- function(Mat1, Mat2)
+    {
+      sqdiff <- (Mat1 - Mat2) ^ 2
+      sum(sqdiff) /2
+    }
+    costmds<-mdscostfn(Mat1,Mat2)
+    
+    
+    
+    allcostmds[iter]<- costmds ;
+    allcostSNE[iter]<- cost ;
+    
+    
+    allcostfinal[iter]<- log(costmds^4)+ lambda*cost;
+    
+    # plot(swiss.mds1$points[,1],swiss.mds1$points[,2], main=sprintf(" @ sig= %s ",sig2*iter), col=as.matrix(l) , pch=19 )
+    
+  } 
+  
+  
+  cost4<-log(allcostmds^4)/max(log(allcostmds^4))
+  cost5<-allcostSNE/max(allcostSNE)
+  costfinal<-cost4+lambda*cost5
+  
+  iter2<-which.min(costfinal)
+  
+  
+  
+  finalpoints<-as.matrix(mydata[[iter2]])
+  #finalpoints
+  r = {}
+  r$out = finalpoints
+  r$finalcosts = allcostfinal
+  r$mdscosts = allcostmds
+  r$Snecosts =allcostSNE
+  r
+  #plot(finalpoints[,1],finalpoints[,2], main=sprintf(" @ sig= %s ",sig2*iter2), col=as.matrix(l) , pch=19 )
+}
+
+
+
+
+
+
+
+
+
+Costfn3<-function(Qfile=swiss.mds1$points,datafile=data4)
+{
+  if (class(data) == 'dist') {
+    distmat = datafile
+    size=nrow(as.matrix(distmat))
+  }
+  else
+  {
+    distmat = dist(datafile)
+    size=nrow(as.matrix(distmat))
+  }
+  distmat = as.matrix(distmat)
+  P = matrix(0, size, size )		
+  sigl = rep(1, size)
+  
+  for (iter in 1:size)
+  {
+    minsigl = -Inf
+    maxsigl = Inf
+    Di = distmat[iter, -iter]
+    
+    D1=Di
+    sigl1=sigl[iter]
+    P1 = exp(-D1 * sigl1)
+    sumP1 = sum(P1)
+    if (sumP1 == 0){
+      Entropysh1 = 0
+      P1 = D1 * 0
+    }
+    else 
+    {
+      Entropysh1 = log(sumP1) + sigl1*sum(D1 %*% P1) /sumP1
+      P1 = P1/sumP1
+    }
+    
+    Entropysh = Entropysh1
+    P0 = P1
+    
+    diffEntropy = Entropysh - log(30);
+    flag = 0;
+    
+    while( flag < 50 && abs(diffEntropy) > 1e-5)
+    {
+      if (diffEntropy > 0)
+      {
+        minsigl = sigl[iter]
+        
+        if (is.infinite(maxsigl))
+        {
+          sigl[iter] = sigl[iter] * 2
+        }
+        else 
+        {
+          sigl[iter] = (maxsigl+sigl[iter])*0.5
+        }
+      } 
+      else
+      {
+        maxsigl = sigl[iter]
+        
+        if (is.infinite(minsigl))
+        { 
+          sigl[iter] = sigl[iter]*0.5
+        }
+        else
+        { 
+          sigl[iter] = (minsigl+ sigl[iter] ) *0.5
+        }
+      }
+      
+      D1=Di
+      sigl1=sigl[iter]
+      P1 = exp( sigl1*(-D1) )
+      sumP1 = sum(P1)
+      if (sumP1 == 0){
+        Entropysh1 = 0
+        P1 = D1 * 0
+      }
+      else
+      {
+        Entropysh1 = log(sumP1) + sigl1 * sum(D1 %*% P1) /sumP1
+        P1 = P1/sumP1
+      }
+      
+      Entropysh = Entropysh1
+      P0 = P1
+      
+      diffEntropy = Entropysh - log(30)
+      flag = flag + 1
+    }	
+    P[iter,-iter] = P0	
+  }	
+  
+  P =  (t(P)+P)/2
+  P[P< 2^(-52)]<-2^(-52)
+  P = P/sum(P)
+  P = P * 4
+  
+  Qfilesum = apply(Qfile^2, 1, sum)
+  num =  1/(1 + sweep(-2 * Qfile %*% t(Qfile),2, -t(Qfilesum)) + Qfilesum )
+  diag(num)=0
+  Q1 = num / sum(num)
+  cost1 =  sum(apply(P * log((P+2^(-52))/(Q1+2^(-52))),1,sum))
+  cost1
+}
+
+
+
